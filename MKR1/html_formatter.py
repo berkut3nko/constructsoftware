@@ -1,6 +1,6 @@
 """
 Lab: Behavioral Design Patterns in LightHTML
-Patterns: Template Method (PR1), State (PR2)
+Patterns: Template Method (PR1), State (PR2), Iterator (PR3)
 """
 
 import collections
@@ -23,6 +23,53 @@ class HiddenState(NodeState):
     """ State when node is hidden; returns an empty string during render """
     def render_content(self, node):
         return ""
+
+
+""" ========================================== """
+""" ITERATOR PATTERN (PR #3)                   """
+""" ========================================== """
+
+class DFSIterator:
+    """ Depth-First Search Iterator (uses a stack) """
+    def __init__(self, root):
+        self._stack = [root]
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if not self._stack:
+            raise StopIteration
+        
+        current = self._stack.pop()
+        
+        """ If element has children, push them to stack in reverse order """
+        if isinstance(current, LightElementNode):
+            for child in reversed(current.children):
+                self._stack.append(child)
+                
+        return current
+
+class BFSIterator:
+    """ Breadth-First Search Iterator (uses a queue) """
+    def __init__(self, root):
+        self._queue = collections.deque([root])
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if not self._queue:
+            raise StopIteration
+        
+        current = self._queue.popleft()
+        
+        """ If element has children, add them to the end of the queue """
+        if isinstance(current, LightElementNode):
+            for child in current.children:
+                self._queue.append(child)
+                
+        return current
 
 
 """ ========================================== """
@@ -74,26 +121,21 @@ class LightTextNode(LightNode):
         return self.text
 
     def get_default_outer_html(self):
-        """ Basic text rendering """
         return self.text
 
 
 class LightElementNode(LightNode):
-    """ Composite element node with State support """
+    """ Composite element node """
     def __init__(self, tag_name, display_type, closing_type, css_classes=None):
         self.tag_name = tag_name
         self.display_type = display_type
         self.closing_type = closing_type
         self.css_classes = css_classes if css_classes else []
         self.children = []
-        
-        """ State Pattern Initialization (PR #2) """
         self._state = VisibleState()
-        
         super().__init__()
 
     def set_state(self, state):
-        """ Changes the current rendering state of the element """
         self._state = state
 
     def on_created(self):
@@ -107,14 +149,9 @@ class LightElementNode(LightNode):
         child.on_inserted()
 
     def do_render(self):
-        """ 
-        The rendering logic is now delegated to the State object.
-        This allows visibility control (PR #2).
-        """
         return self._state.render_content(self)
 
     def get_default_outer_html(self):
-        """ Standard HTML generation for the element """
         class_attr = ""
         if self.css_classes:
             class_attr = " class=\"" + " ".join(self.css_classes) + "\""
@@ -131,29 +168,38 @@ class LightElementNode(LightNode):
 """ ========================================== """
 
 def main():
-    print("--- Demonstrating State Pattern (Visibility) ---")
-    
-    """ Build a simple tree """
+    """ 1. Setup Tree """
     root = LightElementNode("div", "block", "closing")
-    paragraph = LightElementNode("p", "block", "closing")
-    text = LightTextNode("This text can be hidden using States.")
     
-    paragraph.add_child(text)
-    root.add_child(paragraph)
+    header = LightElementNode("header", "block", "closing")
+    header.add_child(LightTextNode("Header Content"))
     
-    print("\n1. Initial Render (Visible State):")
-    print(root.render())
+    main_section = LightElementNode("main", "block", "closing")
+    p1 = LightElementNode("p", "block", "closing")
+    p1.add_child(LightTextNode("Paragraph 1 Text"))
     
-    print("\n2. Switching Paragraph to Hidden State:")
-    """ Change internal state of the paragraph element """
-    paragraph.set_state(HiddenState())
+    main_section.add_child(p1)
     
-    print("Render Output (Paragraph should be gone):")
-    print(root.render())
+    root.add_child(header)
+    root.add_child(main_section)
     
-    print("\n3. Reverting back to Visible State:")
-    paragraph.set_state(VisibleState())
-    print(root.render())
+    print("\n--- Testing Iterator Pattern (PR #3) ---")
+    
+    print("\nDFS (Depth-First Search) Traversal:")
+    """ DFS goes deep into the first child before moving to siblings """
+    for node in DFSIterator(root):
+        if isinstance(node, LightElementNode):
+            print("Element: <" + node.tag_name + ">")
+        else:
+            print("Text: '" + node.text + "'")
+            
+    print("\nBFS (Breadth-First Search) Traversal:")
+    """ BFS visits all siblings at the current level before going deeper """
+    for node in BFSIterator(root):
+        if isinstance(node, LightElementNode):
+            print("Element: <" + node.tag_name + ">")
+        else:
+            print("Text: '" + node.text + "'")
 
 if __name__ == "__main__":
     main()
