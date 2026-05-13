@@ -1,36 +1,71 @@
 """
 Lab: Behavioral Design Patterns in LightHTML
-Patterns: Template Method (PR1), State (PR2), Iterator (PR3), Command (PR4)
+Patterns: Template Method, State, Iterator, Command, Visitor
 """
 
 import collections
 
 """ ========================================== """
-""" STATE PATTERN (PR #2)                      """
+""" VISITOR PATTERN INTERFACES                 """
+""" ========================================== """
+
+class NodeVisitor:
+    """ 
+    Visitor interface to define operations on different node types 
+    without changing their classes.
+    """
+    def visit_element_node(self, node):
+        raise NotImplementedError()
+        
+    def visit_text_node(self, node):
+        raise NotImplementedError()
+
+class TagCounterVisitor(NodeVisitor):
+    """ 
+    Concrete Visitor that counts the occurrences of each HTML tag.
+    """
+    def __init__(self):
+        self.tag_counts = {}
+
+    def visit_element_node(self, node):
+        if node.tag_name not in self.tag_counts:
+            self.tag_counts[node.tag_name] = 0
+        self.tag_counts[node.tag_name] += 1
+
+    def visit_text_node(self, node):
+        """ Text nodes do not contribute to tag counts """
+        pass
+
+    def get_report(self):
+        return self.tag_counts
+
+
+""" ========================================== """
+""" STATE PATTERN                              """
 """ ========================================== """
 
 class NodeState:
-    """ Base state interface for element visibility """
+    """ Base state interface for visibility management """
     def render_content(self, node):
         raise NotImplementedError()
 
 class VisibleState(NodeState):
-    """ State when node is normally visible in the HTML output """
+    """ Default state where content is rendered normally """
     def render_content(self, node):
         return node.get_default_outer_html()
 
 class HiddenState(NodeState):
-    """ State when node is hidden; returns an empty string during render """
+    """ Hidden state where node produces no HTML output """
     def render_content(self, node):
         return ""
 
 
 """ ========================================== """
-""" ITERATOR PATTERN (PR #3)                   """
+""" ITERATOR PATTERN                           """
 """ ========================================== """
 
 class DFSIterator:
-    """ Depth-First Search Iterator (uses a stack) """
+    """ Depth-First Search implementation for DOM traversal """
     def __init__(self, root):
         self._stack = [root]
 
@@ -50,7 +85,7 @@ class DFSIterator:
         return current
 
 class BFSIterator:
-    """ Breadth-First Search Iterator (uses a queue) """
+    """ Breadth-First Search implementation for DOM traversal """
     def __init__(self, root):
         self._queue = collections.deque([root])
 
@@ -71,11 +106,11 @@ class BFSIterator:
 
 
 """ ========================================== """
-""" COMMAND PATTERN (PR #4)                    """
+""" COMMAND PATTERN                            """
 """ ========================================== """
 
 class Command:
-    """ Base interface for DOM manipulation commands """
+    """ Interface for undoable operations """
     def execute(self):
         raise NotImplementedError()
         
@@ -83,31 +118,27 @@ class Command:
         raise NotImplementedError()
 
 class AddChildCommand(Command):
-    """ Concrete command to add a child node to a parent element """
+    """ Command to add a node to a parent with undo capability """
     def __init__(self, parent, child):
         self.parent = parent
         self.child = child
 
     def execute(self):
-        """ Adds child and triggers its lifecycle hooks """
         self.parent.add_child(self.child)
 
     def undo(self):
-        """ Removes the previously added child """
         self.parent.remove_child(self.child)
 
 class CommandHistory:
-    """ Invoker class that manages execution and undo history """
+    """ Invoker that manages command history and provides undo functionality """
     def __init__(self):
         self._history = []
 
     def execute_command(self, command):
-        """ Executes a command and saves it for potential undoing """
         command.execute()
         self._history.append(command)
 
     def undo(self):
-        """ Pops the last command and calls its undo method """
         if self._history:
             command = self._history.pop()
             command.undo()
@@ -115,11 +146,14 @@ class CommandHistory:
 
 
 """ ========================================== """
-""" BASE DOM CLASSES                           """
+""" BASE DOM CLASSES (With Template Method)    """
 """ ========================================== """
 
 class LightNode:
-    """ Base component with Template Method hooks """
+    """ 
+    Base component with lifecycle hooks (Template Method) 
+    and Visitor acceptance logic.
+    """
     
     def __init__(self):
         self.on_created()
@@ -149,9 +183,12 @@ class LightNode:
     def do_render(self):
         raise NotImplementedError()
 
+    def accept(self, visitor):
+        """ Accept method for Visitor Pattern """
+        raise NotImplementedError()
+
 
 class LightTextNode(LightNode):
-    """ Leaf node for plain text """
     def __init__(self, text):
         self.text = text
         super().__init__()
@@ -165,9 +202,11 @@ class LightTextNode(LightNode):
     def get_default_outer_html(self):
         return self.text
 
+    def accept(self, visitor):
+        visitor.visit_text_node(self)
+
 
 class LightElementNode(LightNode):
-    """ Composite element node """
     def __init__(self, tag_name, display_type, closing_type, css_classes=None):
         self.tag_name = tag_name
         self.display_type = display_type
@@ -178,6 +217,7 @@ class LightElementNode(LightNode):
         super().__init__()
 
     def set_state(self, state):
+        """ State Pattern: Change internal visibility state """
         self._state = state
 
     def on_created(self):
@@ -190,20 +230,20 @@ class LightElementNode(LightNode):
         print("Hook: ElementNode <" + self.tag_name + "> removed from DOM")
 
     def add_child(self, child):
-        """ Internal method used by commands to modify children """
         self.children.append(child)
         child.on_inserted()
 
     def remove_child(self, child):
-        """ Internal method used by commands to undo changes """
         if child in self.children:
             self.children.remove(child)
             child.on_removed()
 
     def do_render(self):
+        """ Rendering behavior is delegated to the current state """
         return self._state.render_content(self)
 
     def get_default_outer_html(self):
+        """ Default rendering logic for the element """
         class_attr = ""
         if self.css_classes:
             class_attr = " class=\"" + " ".join(self.css_classes) + "\""
@@ -214,52 +254,62 @@ class LightElementNode(LightNode):
             inner = "".join([child.render() for child in self.children])
             return "<" + self.tag_name + class_attr + ">" + inner + "</" + self.tag_name + ">"
 
+    def accept(self, visitor):
+        """ Passes visitor to itself and then to all children recursively """
+        visitor.visit_element_node(self)
+        for child in self.children:
+            child.accept(visitor)
+
 
 """ ========================================== """
 """ MAIN EXECUTION                             """
 """ ========================================== """
 
 def main():
-    """ 1. Setup Base Document Structure """
+    print("--- Testing Final Integration ---")
+    
     root = LightElementNode("div", "block", "closing")
     history = CommandHistory()
     
-    print("--- Testing Command Pattern (PR #4) ---")
-    
-    """ 2. Use commands to build the tree """
+    """ 1. Testing Command & Template Method hooks """
     header = LightElementNode("header", "block", "closing")
-    add_header_cmd = AddChildCommand(root, header)
-    history.execute_command(add_header_cmd)
+    history.execute_command(AddChildCommand(root, header))
     
-    p_tag = LightElementNode("p", "block", "closing")
-    add_p_cmd = AddChildCommand(header, p_tag)
-    history.execute_command(add_p_cmd)
+    nav = LightElementNode("nav", "block", "closing")
+    history.execute_command(AddChildCommand(header, nav))
     
-    text_node = LightTextNode("This was added via a command.")
-    add_text_cmd = AddChildCommand(p_tag, text_node)
-    history.execute_command(add_text_cmd)
+    link = LightElementNode("a", "inline", "closing", ["link-primary"])
+    link.add_child(LightTextNode("Home"))
+    history.execute_command(AddChildCommand(nav, link))
     
-    print("\nRender after commands:")
+    print("\nInitial Render:")
     print(root.render())
     
-    """ 3. Test Undo functionality """
-    print("\n--- Testing Undo ---")
-    history.undo() """ Removes text node """
-    print("Render after 1 undo:")
+    """ 2. Testing State Pattern """
+    print("\n--- Testing State (Hiding Nav) ---")
+    nav.set_state(HiddenState())
     print(root.render())
+    nav.set_state(VisibleState())
     
-    history.undo() """ Removes p tag """
-    print("Render after 2 undos:")
+    """ 3. Testing Iterators """
+    print("\n--- Testing BFS Iterator ---")
+    for node in BFSIterator(root):
+        info = node.tag_name if isinstance(node, LightElementNode) else "Text"
+        print("BFS Visit: " + info)
+        
+    """ 4. Testing Visitor Pattern """
+    print("\n--- Testing Visitor (Tag Counting) ---")
+    counter = TagCounterVisitor()
+    root.accept(counter)
+    print("Tag Report: " + str(counter.get_report()))
+    
+    """ 5. Testing Command Undo """
+    print("\n--- Testing Undo (Removing Header) ---")
+    history.undo()
+    history.undo()
+    history.undo()
+    print("\nFinal State Render:")
     print(root.render())
-    
-    print("\n--- Testing Iterators along with Commands ---")
-    """ Re-add p tag for iteration test """
-    history.execute_command(add_p_cmd)
-    
-    print("\nDFS Traversal of current tree:")
-    for node in DFSIterator(root):
-        name = node.tag_name if isinstance(node, LightElementNode) else "Text"
-        print("Visited: " + name)
 
 if __name__ == "__main__":
     main()
