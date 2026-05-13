@@ -1,6 +1,6 @@
 """
 Lab: Behavioral Design Patterns in LightHTML
-Patterns: Template Method (PR1), State (PR2), Iterator (PR3)
+Patterns: Template Method (PR1), State (PR2), Iterator (PR3), Command (PR4)
 """
 
 import collections
@@ -43,7 +43,6 @@ class DFSIterator:
         
         current = self._stack.pop()
         
-        """ If element has children, push them to stack in reverse order """
         if isinstance(current, LightElementNode):
             for child in reversed(current.children):
                 self._stack.append(child)
@@ -64,12 +63,55 @@ class BFSIterator:
         
         current = self._queue.popleft()
         
-        """ If element has children, add them to the end of the queue """
         if isinstance(current, LightElementNode):
             for child in current.children:
                 self._queue.append(child)
                 
         return current
+
+
+""" ========================================== """
+""" COMMAND PATTERN (PR #4)                    """
+""" ========================================== """
+
+class Command:
+    """ Base interface for DOM manipulation commands """
+    def execute(self):
+        raise NotImplementedError()
+        
+    def undo(self):
+        raise NotImplementedError()
+
+class AddChildCommand(Command):
+    """ Concrete command to add a child node to a parent element """
+    def __init__(self, parent, child):
+        self.parent = parent
+        self.child = child
+
+    def execute(self):
+        """ Adds child and triggers its lifecycle hooks """
+        self.parent.add_child(self.child)
+
+    def undo(self):
+        """ Removes the previously added child """
+        self.parent.remove_child(self.child)
+
+class CommandHistory:
+    """ Invoker class that manages execution and undo history """
+    def __init__(self):
+        self._history = []
+
+    def execute_command(self, command):
+        """ Executes a command and saves it for potential undoing """
+        command.execute()
+        self._history.append(command)
+
+    def undo(self):
+        """ Pops the last command and calls its undo method """
+        if self._history:
+            command = self._history.pop()
+            command.undo()
+            print("Action undone.")
 
 
 """ ========================================== """
@@ -144,9 +186,19 @@ class LightElementNode(LightNode):
     def on_inserted(self):
         print("Hook: ElementNode <" + self.tag_name + "> inserted into DOM")
 
+    def on_removed(self):
+        print("Hook: ElementNode <" + self.tag_name + "> removed from DOM")
+
     def add_child(self, child):
+        """ Internal method used by commands to modify children """
         self.children.append(child)
         child.on_inserted()
+
+    def remove_child(self, child):
+        """ Internal method used by commands to undo changes """
+        if child in self.children:
+            self.children.remove(child)
+            child.on_removed()
 
     def do_render(self):
         return self._state.render_content(self)
@@ -168,38 +220,46 @@ class LightElementNode(LightNode):
 """ ========================================== """
 
 def main():
-    """ 1. Setup Tree """
+    """ 1. Setup Base Document Structure """
     root = LightElementNode("div", "block", "closing")
+    history = CommandHistory()
     
+    print("--- Testing Command Pattern (PR #4) ---")
+    
+    """ 2. Use commands to build the tree """
     header = LightElementNode("header", "block", "closing")
-    header.add_child(LightTextNode("Header Content"))
+    add_header_cmd = AddChildCommand(root, header)
+    history.execute_command(add_header_cmd)
     
-    main_section = LightElementNode("main", "block", "closing")
-    p1 = LightElementNode("p", "block", "closing")
-    p1.add_child(LightTextNode("Paragraph 1 Text"))
+    p_tag = LightElementNode("p", "block", "closing")
+    add_p_cmd = AddChildCommand(header, p_tag)
+    history.execute_command(add_p_cmd)
     
-    main_section.add_child(p1)
+    text_node = LightTextNode("This was added via a command.")
+    add_text_cmd = AddChildCommand(p_tag, text_node)
+    history.execute_command(add_text_cmd)
     
-    root.add_child(header)
-    root.add_child(main_section)
+    print("\nRender after commands:")
+    print(root.render())
     
-    print("\n--- Testing Iterator Pattern (PR #3) ---")
+    """ 3. Test Undo functionality """
+    print("\n--- Testing Undo ---")
+    history.undo() """ Removes text node """
+    print("Render after 1 undo:")
+    print(root.render())
     
-    print("\nDFS (Depth-First Search) Traversal:")
-    """ DFS goes deep into the first child before moving to siblings """
+    history.undo() """ Removes p tag """
+    print("Render after 2 undos:")
+    print(root.render())
+    
+    print("\n--- Testing Iterators along with Commands ---")
+    """ Re-add p tag for iteration test """
+    history.execute_command(add_p_cmd)
+    
+    print("\nDFS Traversal of current tree:")
     for node in DFSIterator(root):
-        if isinstance(node, LightElementNode):
-            print("Element: <" + node.tag_name + ">")
-        else:
-            print("Text: '" + node.text + "'")
-            
-    print("\nBFS (Breadth-First Search) Traversal:")
-    """ BFS visits all siblings at the current level before going deeper """
-    for node in BFSIterator(root):
-        if isinstance(node, LightElementNode):
-            print("Element: <" + node.tag_name + ">")
-        else:
-            print("Text: '" + node.text + "'")
+        name = node.tag_name if isinstance(node, LightElementNode) else "Text"
+        print("Visited: " + name)
 
 if __name__ == "__main__":
     main()
